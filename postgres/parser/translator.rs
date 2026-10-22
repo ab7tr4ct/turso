@@ -1788,8 +1788,6 @@ impl PostgreSQLTranslator {
         &self,
         select: &pg_query::protobuf::SelectStmt,
     ) -> Result<ast::Select, ParseError> {
-        use pg_query::protobuf::SetOperation;
-
         // Top-level SELECT INTO is intercepted (and its IntoClause stripped)
         // before translation, so an INTO seen here is in a nested position,
         // which PG rejects during parse analysis.
@@ -1808,17 +1806,13 @@ impl PostgreSQLTranslator {
         // Only a plain SELECT carries its WITH clause through translation; a
         // set operation or bare VALUES would silently drop it.
         if select.with_clause.is_some()
-            && (!matches!(
-                select.op(),
-                SetOperation::SetopNone | SetOperation::Undefined
-            ) || (!select.values_lists.is_empty() && select.target_list.is_empty()))
+            && (is_set_operation(select)
+                || (!select.values_lists.is_empty() && select.target_list.is_empty()))
         {
             return Err(not_supported("WITH on a set operation or VALUES"));
         }
 
-        // Check if this is a UNION/INTERSECT/EXCEPT (set operation)
-        let set_op = select.op();
-        if set_op != SetOperation::SetopNone && set_op != SetOperation::Undefined {
+        if is_set_operation(select) {
             return self.translate_set_operation(select);
         }
 
